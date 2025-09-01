@@ -1,0 +1,201 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Colistimethate Sodium Dose Calculator</title>
+  <style>
+    :root{--bg:#0b3954;--acc:#087E8B;--hi:#ff6b35}
+    body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:#f7fafc;color:#1a202c}
+    header{background:var(--bg);color:#fff;padding:20px}
+    h1{margin:0;font-size:22px}
+    main{max-width:980px;margin:24px auto;padding:0 16px}
+    .card{background:#fff;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.06);padding:20px;margin-bottom:16px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+    label{font-size:13px;color:#4a5568;margin-bottom:6px;display:block}
+    input,select{width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;background:#fff}
+    .row{display:flex;gap:10px;align-items:center}
+    .btn{background:var(--acc);border:none;color:#fff;padding:12px 16px;border-radius:12px;font-weight:600;cursor:pointer}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+    .muted{color:#718096;font-size:12px}
+    .result{font-size:15px;line-height:1.5}
+    .pill{display:inline-block;background:#edf2f7;border-radius:999px;padding:4px 10px;margin-right:8px;margin-top:4px}
+    .tag{background:var(--hi);color:#fff;padding:4px 10px;border-radius:999px;font-size:12px;margin-left:6px}
+    footer{padding:20px;text-align:center;color:#718096}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Colistimethate Sodium Dose Calculator</h1>
+    <div class="muted">Educational aid — verify with institutional guidelines.</div>
+  </header>
+  <main>
+    <div class="card">
+      <div class="grid">
+        <div>
+          <label>Patient Type</label>
+          <select id="ptype">
+            <option>Adult</option>
+            <option>Pediatric</option>
+          </select>
+        </div>
+        <div>
+          <label>Age (years)</label>
+          <input type="number" id="age" min="0" step="0.1" placeholder="e.g., 56" />
+        </div>
+        <div id="wtWrap">
+          <label>Weight (kg) <span class="muted">(required if Pediatric)</span></label>
+          <input type="number" id="weight" min="0" step="0.1" placeholder="e.g., 18.5" />
+        </div>
+        <div>
+          <label>Condition</label>
+          <select id="cond">
+            <option>Healthy</option>
+            <option>Renal</option>
+          </select>
+        </div>
+        <div id="crclWrap">
+          <label>Creatinine clearance CrCl (mL/min)</label>
+          <input type="number" id="crcl" min="0" step="1" placeholder="e.g., 35" />
+        </div>
+        <div id="hdWrap">
+          <label>On hemodialysis?</label>
+          <select id="hd">
+            <option>No</option>
+            <option>Yes</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top:14px" class="row">
+        <button class="btn" id="calc">Calculate</button>
+        <div class="muted">Vial sizes: 1, 2, 3, 4.5&nbsp;MIU</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Results</h3>
+      <div id="out" class="result">Enter patient details and click <b>Calculate</b>.</div>
+    </div>
+  </main>
+  <footer>© BioCare – Colistim® Calculator • For education; not a substitute for clinical judgment.</footer>
+
+<script>
+const VIALS = [1.0, 2.0, 3.0, 4.5];
+
+function bestVialCombo(target, maxVials=4){
+  let best = {diff:Infinity, n:Infinity, weight:-Infinity, combo:null, sum:0};
+  function* product(arr, n){
+    if(n===0){ yield []; return; }
+    for(const x of arr){
+      for(const tail of product(arr, n-1)){
+        yield [x, ...tail];
+      }
+    }
+  }
+  for(let n=1; n<=maxVials; n++){
+    for(const combo of product(VIALS, n)){
+      const s = combo.reduce((a,b)=>a+b,0);
+      const diff = Math.abs(s - target);
+      const weight = combo.slice().sort((a,b)=>b-a).reduce((a,b)=>a+b,0); // prefer larger sizes
+      const better = (diff<best.diff) || (diff===best.diff && (n<best.n)) || (diff===best.diff && n===best.n && weight>best.weight);
+      if(better){ best = {diff, n, weight, combo:[...combo], sum:s}; }
+    }
+  }
+  return best;
+}
+
+function fmtCombo(combo){
+  const counts = {};
+  combo.forEach(v => counts[v] = (counts[v]||0)+1);
+  const parts = Object.keys(counts).map(k => ({v:parseFloat(k), c:counts[k]}))
+                                   .sort((a,b)=>b.v-a.v)
+                                   .map(x => `${x.c} × ${x.v} MIU`);
+  return parts.join(" + ");
+}
+
+function calcAdult(renal, crcl, hd){
+  const loading = 9.0;
+  if(!renal){
+    const perDose = 4.5, maint = 9.0, regimen = "4.5 MIU every 12 hours (total 9 MIU/day)";
+    const best = bestVialCombo(perDose);
+    return {loading, maint, regimen, perDose, combo:`${fmtCombo(best.combo)} = ${best.sum} MIU per dose`};
+  }else{
+    if(hd){
+      const hdDose = 3.0, nonDose = 2.0;
+      const b1 = bestVialCombo(hdDose), b2 = bestVialCombo(nonDose);
+      const regimen = "Hemodialysis: 3 MIU once after each HD session. Non‑HD days: 2 MIU once daily.";
+      return {loading, maint:null, regimen, perDose:null, combo:`HD days: ${fmtCombo(b1.combo)} = ${b1.sum} MIU | Non‑HD: ${fmtCombo(b2.combo)} = ${b2.sum} MIU`};
+    }else{
+      if(crcl==null || isNaN(crcl)) throw new Error("CrCl is required for renal‑compromised adult without HD.");
+      let perDose, maint, regimen;
+      if(crcl>50){ perDose=4.5; maint=9.0; regimen="4.5 MIU every 12 hours (total 9 MIU/day)"; }
+      else if(crcl>20){ perDose=3.0; maint=6.0; regimen="3 MIU every 12 hours (total 6 MIU/day)"; }
+      else{ perDose=2.0; maint=2.0; regimen="2 MIU every 24 hours (total 2 MIU/day)"; }
+      const best = bestVialCombo(perDose);
+      return {loading, maint, regimen, perDose, combo:`${fmtCombo(best.combo)} = ${best.sum} MIU per dose`};
+    }
+  }
+}
+
+function calcPeds(weight, renal, crcl, hd){
+  if(weight>=40){ return calcAdult(renal, crcl, hd); }
+  const dailyLow = 0.075*weight, dailyMid=0.10*weight, dailyHigh=0.15*weight;
+  const perDose = dailyMid/3.0;
+  const best = bestVialCombo(perDose);
+  const regimen = `${perDose.toFixed(2)} MIU every 8 hours (midpoint; total ${dailyMid.toFixed(2)} MIU/day). Range: ${dailyLow.toFixed(2)}–${dailyHigh.toFixed(2)} MIU/day.`;
+  return {loading:null, maint:dailyMid, regimen, perDose, combo:`${fmtCombo(best.combo)} = ${best.sum} MIU per dose`};
+}
+
+function calc(){
+  const ptype = document.getElementById('ptype').value;
+  const age = parseFloat(document.getElementById('age').value);
+  const cond = document.getElementById('cond').value;
+  const renal = (cond==='Renal');
+  const crclStr = document.getElementById('crcl').value;
+  const crcl = crclStr==="" ? null : parseFloat(crclStr);
+  const hd = document.getElementById('hd').value==='Yes';
+  const weightStr = document.getElementById('weight').value;
+  const weight = weightStr==="" ? null : parseFloat(weightStr);
+
+  try{
+    let plan;
+    if(ptype==='Pediatric'){
+      if(weight==null || isNaN(weight)) throw new Error("Weight is required for pediatric dosing.");
+      plan = calcPeds(weight, renal, crcl, hd);
+    }else{
+      plan = calcAdult(renal, crcl, hd);
+    }
+    const out = [];
+    out.push(`<span class="pill"><b>Loading dose:</b> ${plan.loading!==null ? (plan.loading.toFixed(1)+" MIU") : "Not routine for <40 kg pediatric"}</span>`);
+    out.push(`<span class="pill"><b>Maintenance/day:</b> ${plan.maint!==null ? plan.maint.toFixed(2)+" MIU/day" : "Varies by day (see regimen)"}</span>`);
+    if(plan.perDose!==null) out.push(`<span class="pill"><b>Per-dose:</b> ${plan.perDose.toFixed(2)} MIU</span>`);
+    document.getElementById('out').innerHTML = `
+      <div class="result">
+        <div style="margin-bottom:8px">${out.join(" ")}</div>
+        <div><b>Regimen:</b> ${plan.regimen} <span class="tag">q8–24h</span></div>
+        <div style="margin-top:6px"><b>Vial suggestion:</b> ${plan.combo}</div>
+        <div class="muted" style="margin-top:8px">This tool rounds to nearest vial combinations without splitting. Verify with local policy.</div>
+      </div>
+    `;
+  }catch(e){
+    document.getElementById('out').innerHTML = `<span style="color:#c53030">Error: ${e.message}</span>`;
+  }
+}
+
+document.getElementById('calc').addEventListener('click', calc);
+
+function toggleFields(){
+  const cond = document.getElementById('cond').value;
+  const renal = (cond==='Renal');
+  document.getElementById('crclWrap').style.display = renal ? 'block' : 'none';
+  document.getElementById('hdWrap').style.display = renal ? 'block' : 'none';
+  const ptype = document.getElementById('ptype').value;
+  document.getElementById('wtWrap').style.display = ptype==='Pediatric' ? 'block' : 'none';
+}
+document.getElementById('cond').addEventListener('change', toggleFields);
+document.getElementById('ptype').addEventListener('change', toggleFields);
+toggleFields();
+</script>
+</body>
+</html>
